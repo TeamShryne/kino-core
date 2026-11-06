@@ -84,7 +84,7 @@ jobs:
             -javapkg com.teamshryne.kinocore \
             -o dist/kino-core.aar \
             ./mobile
-          sha256sum dist/kino-core.aar > dist/kino-core.aar.sha256
+          (cd dist && sha256sum kino-core.aar > kino-core.aar.sha256)
 
       - name: Publish versioned release
         env:
