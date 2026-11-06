@@ -66,7 +66,7 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body["chat_session_id"] != "session-1" || body["model_type"] != "default" {
+			if body["chat_session_id"] != "session-1" || body["model_type"] != "default" || body["source"] != "default" {
 				t.Errorf("bad completion body: %#v", body)
 			}
 			powHeader, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Ds-Pow-Response"))
@@ -87,7 +87,7 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 	defer server.Close()
 	c := NewClientWithHTTPClient(server.URL, server.Client())
 	var events []Event
-	got, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi"}, func(e Event) error { events = append(events, e); return nil })
+	got, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi", Source: "web"}, func(e Event) error { events = append(events, e); return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +105,31 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 	}
 	if !foundText || !foundUsage {
 		t.Fatalf("missing normalized events: %+v", events)
+	}
+}
+
+func TestListSessionsAcceptsFractionalUpdatedAt(t *testing.T) {
+	const updatedAt = 1793992482.921
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathSessionPage {
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("lte_cursor.updated_at"); got != "1793992482.921" {
+			t.Errorf("fractional cursor was not preserved: %q", got)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"biz_code":0,"biz_data":{"has_more":true,"chat_sessions":[{"id":"s1","updated_at":1793992482.921}]}}}`))
+	}))
+	defer server.Close()
+	c := NewClientWithHTTPClient(server.URL, server.Client())
+	page, err := c.ListSessions(context.Background(), testCredentials(), SessionPageRequest{Limit: 10, UpdatedAt: updatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 1 || page.Sessions[0].UpdatedAt != updatedAt {
+		t.Fatalf("unexpected session timestamp: %+v", page.Sessions)
+	}
+	if page.Next != "false:1793992482.921" {
+		t.Fatalf("unexpected next cursor %q", page.Next)
 	}
 }
 

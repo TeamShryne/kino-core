@@ -189,17 +189,17 @@ type History struct {
 }
 
 type SessionPageRequest struct {
-	Limit     int    `json:"limit,omitempty"`
-	Mode      string `json:"mode,omitempty"` // "lte" or "gte"
-	Pinned    bool   `json:"pinned,omitempty"`
-	UpdatedAt int64  `json:"updated_at,omitempty"`
+	Limit     int     `json:"limit,omitempty"`
+	Mode      string  `json:"mode,omitempty"` // "lte" or "gte"
+	Pinned    bool    `json:"pinned,omitempty"`
+	UpdatedAt float64 `json:"updated_at,omitempty"`
 }
 
 type SessionSummary struct {
 	ID        string          `json:"id"`
 	Title     string          `json:"title,omitempty"`
 	Pinned    bool            `json:"pinned,omitempty"`
-	UpdatedAt int64           `json:"updated_at,omitempty"`
+	UpdatedAt float64         `json:"updated_at,omitempty"`
 	ModelType string          `json:"model_type,omitempty"`
 	Raw       json.RawMessage `json:"raw,omitempty"`
 }

@@ -396,7 +396,7 @@ func (c *Client) ListSessions(ctx context.Context, creds Credentials, request Se
 	}
 	query := url.Values{"count": []string{strconv.Itoa(request.Limit)}}
 	query.Set(mode+"_cursor.pinned", strconv.FormatBool(request.Pinned))
-	query.Set(mode+"_cursor.updated_at", strconv.FormatInt(request.UpdatedAt, 10))
+	query.Set(mode+"_cursor.updated_at", strconv.FormatFloat(request.UpdatedAt, 'f', -1, 64))
 	var response struct {
 		HasMore      bool             `json:"has_more"`
 		ChatSessions []SessionSummary `json:"chat_sessions"`
@@ -408,7 +408,7 @@ func (c *Client) ListSessions(ctx context.Context, creds Credentials, request Se
 	page := SessionPage{Sessions: response.ChatSessions, HasMore: response.HasMore}
 	if len(page.Sessions) > 0 {
 		last := page.Sessions[len(page.Sessions)-1]
-		page.Next = fmt.Sprintf("%t:%d", last.Pinned, last.UpdatedAt)
+		page.Next = fmt.Sprintf("%t:%s", last.Pinned, strconv.FormatFloat(last.UpdatedAt, 'f', -1, 64))
 	}
 	return page, nil
 }
@@ -498,9 +498,14 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 	if req.ParentMessageID == 0 {
 		body["model_type"] = req.ModelType
 	}
-	if req.Source != "" {
-		body["source"] = req.Source
+	source := req.Source
+	if source == "" || source == "web" { // "web" was used by earlier Kino Android builds.
+		source = "default"
 	}
+	if source != "default" && source != "landing" {
+		return CompletionResult{}, fmt.Errorf("completion source must be default or landing")
+	}
+	body["source"] = source
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return CompletionResult{}, err
