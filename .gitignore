@@ -1,0 +1,5 @@
+/dist/
+*.aar
+*.xcframework
+*.test
+coverage.out

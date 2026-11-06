@@ -1,0 +1,96 @@
+name: Kino Core CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kino-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Go tests and vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  android-aar:
+    name: Build Android AAR release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.2.12479018" "platforms;android-35"
+
+      - name: Install gomobile
+        env:
+          GOMOBILE_VERSION: v0.0.0-20260908204917-8b95e45f8d3e
+        run: go install golang.org/x/mobile/cmd/gomobile@"${GOMOBILE_VERSION}"
+
+      - name: Build AAR
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: |
+          gomobile init
+          mkdir -p dist
+          gomobile bind \
+            -target=android/arm,android/arm64,android/386,android/amd64 \
+            -androidapi 26 \
+            -javapkg com.teamshryne.kinocore \
+            -o dist/kino-core.aar \
+            ./mobile
+          sha256sum dist/kino-core.aar > dist/kino-core.aar.sha256
+
+      - name: Publish versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/kino-core.aar \
+            dist/kino-core.aar.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Kino Core ${GITHUB_REF_NAME}" \
+            --generate-notes
