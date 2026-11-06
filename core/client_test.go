@@ -77,6 +77,11 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 			_, _ = w.Write([]byte("event: ready\ndata: {\"request_message_id\":11,\"response_message_id\":12}\n\n" +
 				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":12,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
 				"data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\"hello\"}\n\n" +
+				"data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\" world\"}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":14,\"type\":\"THINK\",\"content\":\"\"},{\"id\":15,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
+				"data: {\"p\":\"response/fragments/1/content\",\"o\":\"APPEND\",\"v\":\"think one\"}\n\n" +
+				"data: {\"p\":\"response/fragments/1/content\",\"o\":\"APPEND\",\"v\":\" think two\"}\n\n" +
+				"data: {\"p\":\"response/fragments/2/content\",\"o\":\"APPEND\",\"v\":\"answer two\"}\n\n" +
 				"data: {\"p\":\"response/accumulated_token_usage\",\"o\":\"SET\",\"v\":23}\n\n" +
 				"event: close\ndata: {}\n\n"))
 		default:
@@ -94,16 +99,20 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 	if got.SessionID != "session-1" || got.RequestMessageID != 11 || got.ResponseMessageID != 12 || got.AccumulatedTokenUsage != 23 {
 		t.Fatalf("result: %+v", got)
 	}
-	foundText, foundUsage := false, false
+	var textDeltas, thinkingDeltas []string
+	foundUsage := false
 	for _, event := range events {
-		if event.Kind == "text_delta" && event.Content == "hello" {
-			foundText = true
+		if event.Kind == "text_delta" {
+			textDeltas = append(textDeltas, event.Content)
+		}
+		if event.Kind == "thinking_delta" {
+			thinkingDeltas = append(thinkingDeltas, event.Content)
 		}
 		if event.Kind == "usage" && event.AccumulatedTokenUsage != nil && *event.AccumulatedTokenUsage == 23 {
 			foundUsage = true
 		}
 	}
-	if !foundText || !foundUsage {
+	if strings.Join(textDeltas, "") != "hello worldanswer two" || strings.Join(thinkingDeltas, "") != "think one think two" || !foundUsage {
 		t.Fatalf("missing normalized events: %+v", events)
 	}
 }

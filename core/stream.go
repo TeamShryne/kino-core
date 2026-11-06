@@ -9,11 +9,13 @@ import (
 )
 
 type streamState struct {
-	sessionID          string
-	lastFragmentType   string
-	fragmentTypeByPath map[string]string
-	closed             bool
-	result             CompletionResult
+	sessionID           string
+	lastFragmentType    string
+	fragmentTypeByPath  map[string]string
+	fragmentTypeByIndex map[string]string
+	nextFragmentIndex   int
+	closed              bool
+	result              CompletionResult
 }
 
 func (s *streamState) consume(ctx context.Context, emit func(Event) error, eventName string, payload map[string]any) error {
@@ -66,9 +68,9 @@ func (s *streamState) consume(ctx context.Context, emit func(Event) error, event
 			}
 		}
 		if raw, ok := response["fragments"].([]any); ok {
-			for _, value := range raw {
+			for index, value := range raw {
 				if fragment, ok := decodeFragment(value); ok {
-					if err := s.sendFragment(ctx, emit, fragment); err != nil {
+					if err := s.sendFragmentAt(ctx, emit, fragment, index); err != nil {
 						return err
 					}
 				}
@@ -115,7 +117,7 @@ func (s *streamState) consumeOperation(ctx context.Context, emit func(Event) err
 		if fragments, ok := value.([]any); ok {
 			for _, item := range fragments {
 				if fragment, valid := decodeFragment(item); valid {
-					if err := s.sendFragment(ctx, emit, fragment); err != nil {
+					if err := s.sendFragmentAt(ctx, emit, fragment, s.nextFragmentIndex); err != nil {
 						return err
 					}
 				}
@@ -158,6 +160,12 @@ func (s *streamState) fragmentTypeForPath(path string) string {
 	}
 	parts := strings.Split(path, "/")
 	if len(parts) >= 3 {
+		if parts[2] == "-1" {
+			return s.lastFragmentType
+		}
+		if value := s.fragmentTypeByIndex[parts[2]]; value != "" {
+			return value
+		}
 		if value := s.fragmentTypeByPath[parts[2]]; value != "" {
 			return value
 		}
@@ -165,16 +173,20 @@ func (s *streamState) fragmentTypeForPath(path string) string {
 	return s.lastFragmentType
 }
 
-func (s *streamState) sendFragment(ctx context.Context, emit func(Event) error, fragment Fragment) error {
+func (s *streamState) sendFragmentAt(ctx context.Context, emit func(Event) error, fragment Fragment, index int) error {
+	if index >= s.nextFragmentIndex {
+		s.nextFragmentIndex = index + 1
+	}
 	if fragment.Type != "" {
 		s.lastFragmentType = fragment.Type
 		if s.fragmentTypeByPath == nil {
 			s.fragmentTypeByPath = make(map[string]string)
 		}
-		s.fragmentTypeByPath[strconv.FormatInt(fragment.ID, 10)] = fragment.Type
-		if fragment.ID == 0 {
-			s.fragmentTypeByPath["-1"] = fragment.Type
+		if s.fragmentTypeByIndex == nil {
+			s.fragmentTypeByIndex = make(map[string]string)
 		}
+		s.fragmentTypeByPath[strconv.FormatInt(fragment.ID, 10)] = fragment.Type
+		s.fragmentTypeByIndex[strconv.Itoa(index)] = fragment.Type
 	}
 	kind := "fragment"
 	if fragment.Type == "SEARCH" {
