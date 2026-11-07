@@ -78,9 +78,11 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":12,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
 				"data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\"hello\"}\n\n" +
 				"data: {\"p\":\"response/fragments/-1/content\",\"o\":\"APPEND\",\"v\":\" world\"}\n\n" +
-				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":14,\"type\":\"THINK\",\"content\":\"\"},{\"id\":15,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
-				"data: {\"p\":\"response/fragments/1/content\",\"o\":\"APPEND\",\"v\":\"think one\"}\n\n" +
-				"data: {\"p\":\"response/fragments/1/content\",\"o\":\"APPEND\",\"v\":\" think two\"}\n\n" +
+				"data: {\"v\":\" inline\"}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":14,\"type\":\"THINK\",\"content\":\"\"}]}\n\n" +
+				"data: {\"v\":\"think one\"}\n\n" +
+				"data: {\"v\":\" think two\"}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":15,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
 				"data: {\"p\":\"response/fragments/2/content\",\"o\":\"APPEND\",\"v\":\"answer two\"}\n\n" +
 				"data: {\"p\":\"response/accumulated_token_usage\",\"o\":\"SET\",\"v\":23}\n\n" +
 				"event: close\ndata: {}\n\n"))
@@ -112,7 +114,7 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 			foundUsage = true
 		}
 	}
-	if strings.Join(textDeltas, "") != "hello worldanswer two" || strings.Join(thinkingDeltas, "") != "think one think two" || !foundUsage {
+	if strings.Join(textDeltas, "") != "hello world inlineanswer two" || strings.Join(thinkingDeltas, "") != "think one think two" || !foundUsage {
 		t.Fatalf("missing normalized events: %+v", events)
 	}
 }

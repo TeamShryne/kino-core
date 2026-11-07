@@ -36,6 +36,22 @@ func (s *streamState) consume(ctx context.Context, emit func(Event) error, event
 	if p, ok := payload["p"].(string); ok {
 		return s.consumeOperation(ctx, emit, p, stringValue(payload["o"]), payload["v"], payload)
 	}
+	// DeepSeek also sends plain v-string delta frames without a path or
+	// operation. Kino Server forwards these as content; ignoring them here
+	// leaves only the initial fragment payload visible in Android.
+	if content, ok := payload["v"].(string); ok {
+		fragmentType := s.lastFragmentType
+		if fragmentType == "" {
+			fragmentType = "RESPONSE"
+		}
+		kind := "text_delta"
+		if fragmentType == "THINK" {
+			kind = "thinking_delta"
+		} else if fragmentType != "RESPONSE" {
+			kind = "fragment_delta"
+		}
+		return sendEvent(ctx, emit, Event{Kind: kind, Provider: ProviderDeepSeek, SessionID: s.sessionID, ResponseMessageID: s.result.ResponseMessageID, FragmentType: fragmentType, Content: content})
+	}
 	if response := responseObject(payload); response != nil {
 		if raw, ok := numberValue(response["message_id"]); ok {
 			s.result.ResponseMessageID = raw
