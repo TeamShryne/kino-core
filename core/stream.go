@@ -14,14 +14,10 @@ type streamState struct {
 	fragmentTypeByPath  map[string]string
 	fragmentTypeByIndex map[string]string
 	nextFragmentIndex   int
-	closed              bool
 	result              CompletionResult
 }
 
 func (s *streamState) consume(ctx context.Context, emit func(Event) error, eventName string, payload map[string]any) error {
-	if eventName == "finish" || eventName == "close" {
-		s.closed = true
-	}
 	if eventName != "" && eventName != "message" {
 		if err := sendEvent(ctx, emit, Event{Kind: "server_event", Provider: ProviderDeepSeek, SessionID: s.sessionID, Status: eventName}); err != nil {
 			return err
