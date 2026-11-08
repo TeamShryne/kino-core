@@ -19,7 +19,7 @@ type streamState struct {
 }
 
 func (s *streamState) consume(ctx context.Context, emit func(Event) error, eventName string, payload map[string]any) error {
-	if eventName == "close" {
+	if eventName == "finish" || eventName == "close" {
 		s.closed = true
 	}
 	if eventName != "" && eventName != "message" {

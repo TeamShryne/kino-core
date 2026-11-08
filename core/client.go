@@ -537,10 +537,11 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 			state.closed = true
 			return nil
 		}
-		// A terminal SSE event is valid without a data field. Process the event
-		// name before the empty-data fast path so a clean close is not mistaken
-		// for a truncated response.
-		if frame.Event == "close" {
+		// DeepSeek's web stream can announce completion with `finish` before its
+		// transport-level `close`. Either event is terminal, and neither requires
+		// a data field. Handle these before the empty-data fast path so a completed
+		// response is not discarded if the connection closes before `close`.
+		if frame.Event == "finish" || frame.Event == "close" {
 			payload := map[string]any{}
 			if frame.Data != "" {
 				_ = json.Unmarshal([]byte(frame.Data), &payload)
