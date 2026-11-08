@@ -534,7 +534,6 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 		if frame.Data == "[DONE]" {
 			// OpenAI-compatible providers may use this terminal marker, while the
 			// DeepSeek web endpoint normally sends `event: close` instead.
-			state.closed = true
 			return nil
 		}
 		// DeepSeek's web stream can announce completion with `finish` before its
@@ -571,9 +570,9 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 	if err != nil {
 		return state.result, err
 	}
-	if !state.closed {
-		return state.result, io.ErrUnexpectedEOF
-	}
+	// Match Kino Server: a clean transport EOF ends the stream even if DeepSeek
+	// omitted its finish/close marker. Actual body read errors still come back
+	// from sse.Parse above.
 	if state.result.ResponseMessageID == 0 {
 		return state.result, errors.New("DeepSeek stream ended without a response message id")
 	}

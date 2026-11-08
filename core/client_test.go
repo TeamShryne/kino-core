@@ -152,6 +152,37 @@ func TestCompleteAcceptsFinishEventWithoutClose(t *testing.T) {
 	}
 }
 
+func TestCompleteAcceptsCleanEOFWithoutTerminalEvent(t *testing.T) {
+	const salt = "clean-eof-test-salt"
+	const expiry = int64(1785644803019)
+	const answer = uint64(17)
+	challenge := HashForTest(fmt.Sprintf("%s_%d_%d", salt, expiry, answer))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathCreateSession:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"biz_code":0,"biz_data":{"chat_session":{"id":"eof-session"},"ttl_seconds":3600}}}`))
+		case pathPowChallenge:
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"challenge":{"algorithm":"DeepSeekHashV1","challenge":"%s","salt":"%s","signature":"sig","difficulty":18,"expire_at":%d,"target_path":"%s"}}}}`, challenge, salt, expiry, pathCompletion)))
+		case pathCompletion:
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("event: ready\ndata: {\"request_message_id\":31,\"response_message_id\":32}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":32,\"type\":\"RESPONSE\",\"content\":\"partial but usable answer\"}]}\n\n"))
+		default:
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := NewClientWithHTTPClient(server.URL, server.Client())
+	got, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi"}, nil)
+	if err != nil {
+		t.Fatalf("clean EOF without a terminal event should match Kino Server behavior: %v", err)
+	}
+	if got.SessionID != "eof-session" || got.ResponseMessageID != 32 {
+		t.Fatalf("unexpected completion result: %+v", got)
+	}
+}
+
 func TestListSessionsAcceptsFractionalUpdatedAt(t *testing.T) {
 	const updatedAt = 1793992482.921
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
