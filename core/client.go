@@ -532,7 +532,20 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 	state := streamState{sessionID: sessionID, result: CompletionResult{SessionID: sessionID}}
 	err = sse.Parse(resp.Body, func(frame sse.Frame) error {
 		if frame.Data == "[DONE]" {
+			// OpenAI-compatible providers may use this terminal marker, while the
+			// DeepSeek web endpoint normally sends `event: close` instead.
+			state.closed = true
 			return nil
+		}
+		// A terminal SSE event is valid without a data field. Process the event
+		// name before the empty-data fast path so a clean close is not mistaken
+		// for a truncated response.
+		if frame.Event == "close" {
+			payload := map[string]any{}
+			if frame.Data != "" {
+				_ = json.Unmarshal([]byte(frame.Data), &payload)
+			}
+			return state.consume(ctx, emit, frame.Event, payload)
 		}
 		if frame.Event == "ready" {
 			var ready struct {

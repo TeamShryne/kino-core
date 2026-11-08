@@ -85,7 +85,8 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":15,\"type\":\"RESPONSE\",\"content\":\"\"}]}\n\n" +
 				"data: {\"p\":\"response/fragments/2/content\",\"o\":\"APPEND\",\"v\":\"answer two\"}\n\n" +
 				"data: {\"p\":\"response/accumulated_token_usage\",\"o\":\"SET\",\"v\":23}\n\n" +
-				"event: close\ndata: {}\n\n"))
+				// DeepSeek may emit the terminal event without a data field.
+				"event: close\n\n"))
 		default:
 			t.Errorf("unexpected endpoint: %s", r.URL.Path)
 			http.NotFound(w, r)
