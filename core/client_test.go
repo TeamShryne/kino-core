@@ -183,6 +183,64 @@ func TestCompleteAcceptsCleanEOFWithoutTerminalEvent(t *testing.T) {
 	}
 }
 
+func TestCompleteAcceptsAbruptEOFAfterResponseStarted(t *testing.T) {
+	const salt = "abrupt-eof-test-salt"
+	const expiry = int64(1785644803019)
+	const answer = uint64(17)
+	challenge := HashForTest(fmt.Sprintf("%s_%d_%d", salt, expiry, answer))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathCreateSession:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"biz_code":0,"biz_data":{"chat_session":{"id":"abrupt-eof-session"},"ttl_seconds":3600}}}`))
+		case pathPowChallenge:
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"challenge":{"algorithm":"DeepSeekHashV1","challenge":"%s","salt":"%s","signature":"sig","difficulty":18,"expire_at":%d,"target_path":"%s"}}}}`, challenge, salt, expiry, pathCompletion)))
+		case pathCompletion:
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("completion handler does not support connection hijacking")
+				return
+			}
+			conn, buf, err := hijacker.Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer conn.Close()
+			body := "event: ready\ndata: {\"request_message_id\":41,\"response_message_id\":42}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":42,\"type\":\"RESPONSE\",\"content\":\"usable answer before the socket closed\"}]}\n\n"
+			_, _ = fmt.Fprintf(buf, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n%x\r\n%s\r\n", len(body), body)
+			// Intentionally omit the final zero chunk: closing the socket
+			// here produces io.ErrUnexpectedEOF in the HTTP reader.
+			_ = buf.Flush()
+		default:
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := NewClientWithHTTPClient(server.URL, server.Client())
+	var emitted []Event
+	got, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi"}, func(e Event) error {
+		emitted = append(emitted, e)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected EOF after a started response should be accepted: %v", err)
+	}
+	if got.SessionID != "abrupt-eof-session" || got.ResponseMessageID != 42 {
+		t.Fatalf("unexpected completion result: %+v", got)
+	}
+	var text string
+	for _, e := range emitted {
+		if e.Kind == "text_delta" {
+			text += e.Content
+		}
+	}
+	if text != "usable answer before the socket closed" {
+		t.Fatalf("missing streamed text after abrupt EOF: %q", text)
+	}
+}
+
 func TestListSessionsAcceptsFractionalUpdatedAt(t *testing.T) {
 	const updatedAt = 1793992482.921
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
