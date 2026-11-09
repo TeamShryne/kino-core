@@ -44,6 +44,11 @@ type Client struct {
 // branch head in the first frame.
 var ErrMissingResponseID = errors.New("DeepSeek stream ended without a response message id")
 
+// ErrRateLimited is returned when DeepSeek sends a rate-limit hint instead of
+// usable response content. Android treats it as retryable and backs off
+// instead of surfacing the final answer as an empty completion.
+var ErrRateLimited = errors.New("DeepSeek rate limit reached (rate_limit_reached)")
+
 func NewClient() *Client {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -592,6 +597,13 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 	// Match Kino Server: a clean transport EOF ends the stream even if DeepSeek
 	// omitted its finish/close marker. An abrupt EOF after a response has
 	// already started is also accepted because the parsed stream is usable.
+	if state.rateLimited {
+		message := state.rateLimitMessage
+		if message == "" {
+			message = "Messages too frequent. Try again later."
+		}
+		return state.result, fmt.Errorf("%w: %s", ErrRateLimited, message)
+	}
 	if state.result.ResponseMessageID == 0 {
 		return state.result, ErrMissingResponseID
 	}

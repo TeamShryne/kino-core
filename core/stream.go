@@ -15,6 +15,8 @@ type streamState struct {
 	fragmentTypeByIndex map[string]string
 	nextFragmentIndex   int
 	terminal            bool
+	rateLimited         bool
+	rateLimitMessage    string
 	result              CompletionResult
 }
 
@@ -22,8 +24,16 @@ func (s *streamState) consume(ctx context.Context, emit func(Event) error, event
 	if eventName == "finish" || eventName == "close" {
 		s.terminal = true
 	}
+	if eventName == "hint" {
+		reason := stringValue(payload["finish_reason"])
+		if reason == "rate_limit_reached" || strings.Contains(strings.ToLower(stringValue(payload["content"])), "messages too frequent") {
+			s.rateLimited = true
+			s.rateLimitMessage = strings.TrimSpace(stringValue(payload["content"]))
+		}
+	}
 	if eventName != "" && eventName != "message" {
-		if err := sendEvent(ctx, emit, Event{Kind: "server_event", Provider: ProviderDeepSeek, SessionID: s.sessionID, Status: eventName}); err != nil {
+		raw, _ := json.Marshal(payload)
+		if err := sendEvent(ctx, emit, Event{Kind: "server_event", Provider: ProviderDeepSeek, SessionID: s.sessionID, Status: eventName, Raw: raw}); err != nil {
 			return err
 		}
 	}
