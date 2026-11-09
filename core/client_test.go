@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -162,6 +163,35 @@ func TestCompleteParsesStringResponseIDs(t *testing.T) {
 	}
 	if text != "string id answer" {
 		t.Fatalf("unexpected streamed text: %q", text)
+	}
+}
+
+func TestCompleteReturnsRateLimitHint(t *testing.T) {
+	const salt = "rate-limit-test-salt"
+	const expiry = int64(1785644803019)
+	const answer = uint64(17)
+	challenge := HashForTest(fmt.Sprintf("%s_%d_%d", salt, expiry, answer))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathCreateSession:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"biz_code":0,"biz_data":{"chat_session":{"id":"rate-limit-session"},"ttl_seconds":3600}}}`))
+		case pathPowChallenge:
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"challenge":{"algorithm":"DeepSeekHashV1","challenge":"%s","salt":"%s","signature":"sig","difficulty":18,"expire_at":%d,"target_path":"%s"}}}}`, challenge, salt, expiry, pathCompletion)))
+		case pathCompletion:
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("event: ready\ndata: {\"request_message_id\":301,\"response_message_id\":302,\"model_type\":\"default\"}\n\n" +
+				"event: hint\ndata: {\"clear_response\":true,\"content\":\"Messages too frequent. Try again later.\",\"finish_reason\":\"rate_limit_reached\",\"type\":\"error\"}\n\n" +
+				"event: close\ndata: {\"auto_resume\":false,\"click_behavior\":\"retry\"}\n\n"))
+		default:
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := NewClientWithHTTPClient(server.URL, server.Client())
+	_, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi"}, nil)
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("expected rate limit error, got: %v", err)
 	}
 }
 
