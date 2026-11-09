@@ -27,11 +27,11 @@ func (s *streamState) consume(ctx context.Context, emit func(Event) error, event
 			return err
 		}
 	}
-	if raw, ok := payload["response_message_id"].(float64); ok {
-		s.result.ResponseMessageID = int64(raw)
+	if raw, ok := numberValue(payload["response_message_id"]); ok {
+		s.result.ResponseMessageID = raw
 	}
-	if raw, ok := payload["request_message_id"].(float64); ok {
-		s.result.RequestMessageID = int64(raw)
+	if raw, ok := numberValue(payload["request_message_id"]); ok {
+		s.result.RequestMessageID = raw
 	}
 	if p, ok := payload["p"].(string); ok {
 		return s.consumeOperation(ctx, emit, p, stringValue(payload["o"]), payload["v"], payload)
@@ -252,6 +252,9 @@ func numberValue(v any) (int64, bool) {
 		return int64(n), true
 	case json.Number:
 		i, err := n.Int64()
+		return i, err == nil
+	case string:
+		i, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64)
 		return i, err == nil
 	default:
 		return 0, false
