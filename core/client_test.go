@@ -120,6 +120,51 @@ func TestCompleteCreatesSessionSolvesPowAndEmitsDeltas(t *testing.T) {
 	}
 }
 
+func TestCompleteParsesStringResponseIDs(t *testing.T) {
+	const salt = "string-id-test-salt"
+	const expiry = int64(1785644803019)
+	const answer = uint64(17)
+	challenge := HashForTest(fmt.Sprintf("%s_%d_%d", salt, expiry, answer))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathCreateSession:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"biz_code":0,"biz_data":{"chat_session":{"id":"string-id-session"},"ttl_seconds":3600}}}`))
+		case pathPowChallenge:
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"challenge":{"algorithm":"DeepSeekHashV1","challenge":"%s","salt":"%s","signature":"sig","difficulty":18,"expire_at":%d,"target_path":"%s"}}}}`, challenge, salt, expiry, pathCompletion)))
+		case pathCompletion:
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("event: ready\ndata: {\"request_message_id\":\"201\",\"response_message_id\":\"202\",\"model_type\":\"default\"}\n\n" +
+				"data: {\"p\":\"response/fragments\",\"o\":\"APPEND\",\"v\":[{\"id\":202,\"type\":\"RESPONSE\",\"content\":\"string id answer\"}]}\n\n" +
+				"event: close\n\n"))
+		default:
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := NewClientWithHTTPClient(server.URL, server.Client())
+	var emitted []Event
+	got, err := c.Complete(context.Background(), testCredentials(), CompletionRequest{ModelType: "default", Prompt: "hi"}, func(e Event) error {
+		emitted = append(emitted, e)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("string response ids should be accepted: %v", err)
+	}
+	if got.RequestMessageID != 201 || got.ResponseMessageID != 202 {
+		t.Fatalf("unexpected parsed ids: %+v", got)
+	}
+	var text string
+	for _, event := range emitted {
+		if event.Kind == "text_delta" {
+			text += event.Content
+		}
+	}
+	if text != "string id answer" {
+		t.Fatalf("unexpected streamed text: %q", text)
+	}
+}
+
 func TestCompleteAcceptsFinishEventWithoutClose(t *testing.T) {
 	const salt = "finish-test-salt"
 	const expiry = int64(1785644803019)

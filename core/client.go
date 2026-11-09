@@ -38,6 +38,12 @@ type Client struct {
 	http    *http.Client
 }
 
+// ErrMissingResponseID is returned when the completion stream ends before
+// DeepSeek emits a usable response message id. Android retries this error
+// after resyncing the conversation because the server did not deliver a new
+// branch head in the first frame.
+var ErrMissingResponseID = errors.New("DeepSeek stream ended without a response message id")
+
 func NewClient() *Client {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -549,14 +555,19 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 			return state.consume(ctx, emit, frame.Event, payload)
 		}
 		if frame.Event == "ready" {
-			var ready struct {
-				RequestMessageID  int64 `json:"request_message_id"`
-				ResponseMessageID int64 `json:"response_message_id"`
-			}
+			var ready map[string]any
 			if json.Unmarshal([]byte(frame.Data), &ready) == nil {
-				state.result.RequestMessageID = ready.RequestMessageID
-				state.result.ResponseMessageID = ready.ResponseMessageID
-				return sendEvent(ctx, emit, Event{Kind: "message_started", Provider: ProviderDeepSeek, SessionID: sessionID, RequestMessageID: ready.RequestMessageID, ResponseMessageID: ready.ResponseMessageID, ParentMessageID: req.ParentMessageID, ThinkingEnabled: boolPtr(req.ThinkingEnabled), SearchEnabled: boolPtr(req.SearchEnabled), Raw: json.RawMessage(frame.Data)})
+				requestMessageID, requestOK := numberValue(ready["request_message_id"])
+				responseMessageID, responseOK := numberValue(ready["response_message_id"])
+				if requestOK || responseOK {
+					if requestOK {
+						state.result.RequestMessageID = requestMessageID
+					}
+					if responseOK {
+						state.result.ResponseMessageID = responseMessageID
+					}
+					return sendEvent(ctx, emit, Event{Kind: "message_started", Provider: ProviderDeepSeek, SessionID: sessionID, RequestMessageID: state.result.RequestMessageID, ResponseMessageID: state.result.ResponseMessageID, ParentMessageID: req.ParentMessageID, ThinkingEnabled: boolPtr(req.ThinkingEnabled), SearchEnabled: boolPtr(req.SearchEnabled), Raw: json.RawMessage(frame.Data)})
+				}
 			}
 		}
 		if frame.Data == "" {
@@ -582,7 +593,7 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 	// omitted its finish/close marker. An abrupt EOF after a response has
 	// already started is also accepted because the parsed stream is usable.
 	if state.result.ResponseMessageID == 0 {
-		return state.result, errors.New("DeepSeek stream ended without a response message id")
+		return state.result, ErrMissingResponseID
 	}
 	if err := sendEvent(ctx, emit, Event{Kind: "complete", Provider: ProviderDeepSeek, SessionID: sessionID, RequestMessageID: state.result.RequestMessageID, ResponseMessageID: state.result.ResponseMessageID, AccumulatedTokenUsage: int64Ptr(state.result.AccumulatedTokenUsage), Status: state.result.Status, SearchTriggered: boolPtr(state.result.SearchTriggered)}); err != nil {
 		return state.result, err
