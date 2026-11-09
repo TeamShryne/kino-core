@@ -534,6 +534,7 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 		if frame.Data == "[DONE]" {
 			// OpenAI-compatible providers may use this terminal marker, while the
 			// DeepSeek web endpoint normally sends `event: close` instead.
+			state.terminal = true
 			return nil
 		}
 		// DeepSeek's web stream can announce completion with `finish` before its
@@ -568,11 +569,18 @@ func (c *Client) Complete(ctx context.Context, creds Credentials, req Completion
 		return state.consume(ctx, emit, frame.Event, payload)
 	})
 	if err != nil {
-		return state.result, err
+		// DeepSeek and its web intermediaries sometimes close a useful stream
+		// abruptly after a response has already started (or even after a
+		// terminal SSE event) instead of sending a clean HTTP end. In that
+		// case the parsed fragments are a valid tool call or answer; the lost
+		// prompt is recoverable by Android and should not fail the whole turn.
+		if state.result.ResponseMessageID == 0 || !(errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
+			return state.result, err
+		}
 	}
 	// Match Kino Server: a clean transport EOF ends the stream even if DeepSeek
-	// omitted its finish/close marker. Actual body read errors still come back
-	// from sse.Parse above.
+	// omitted its finish/close marker. An abrupt EOF after a response has
+	// already started is also accepted because the parsed stream is usable.
 	if state.result.ResponseMessageID == 0 {
 		return state.result, errors.New("DeepSeek stream ended without a response message id")
 	}
